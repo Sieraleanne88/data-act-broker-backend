@@ -35,6 +35,7 @@ def get_program_activity_file(base_path):
             the file path for the pa file either on S3 or locally
     """
     if CONFIG_BROKER['use_aws']:
+        logger.info('PA BUCKET = {}'.format(PA_BUCKET))
         s3 = boto3.resource('s3', region_name=CONFIG_BROKER['aws_region'])
         s3_object = s3.Object(PA_BUCKET, PA_SUB_KEY + PA_FILE_NAME)
         response = s3_object.get(Key=(PA_SUB_KEY + PA_FILE_NAME))
@@ -55,6 +56,7 @@ def get_date_of_current_pa_upload(base_path):
             DateTime object
     """
     if CONFIG_BROKER['use_aws']:
+        logger.info('PA BUCKET = {}'.format(PA_BUCKET))
         last_uploaded = boto3.client('s3', region_name=CONFIG_BROKER['aws_region']). \
             head_object(Bucket=PA_BUCKET, Key=PA_SUB_KEY + PA_FILE_NAME)['LastModified']
         # LastModified is coming back to us in UTC already; just drop the TZ.
