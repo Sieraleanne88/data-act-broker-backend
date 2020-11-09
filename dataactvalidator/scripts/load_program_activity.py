@@ -55,6 +55,10 @@ def get_date_of_current_pa_upload(base_path):
             DateTime object
     """
     if CONFIG_BROKER['use_aws']:
+        usaspending_s3_reso = boto3.resource('s3', region_name='us-gov-west-1')
+        usaspending_s3_reso.Bucket('dti-da-public-files-nonprod'). \
+            download_file('broker_reference_data/cfda.csv', 'usaspending_cfda.csv')
+        usaspending_s3_reso = boto3.resource('s3', region_name='us-gov-west-1')
         logger.info('last_uploaded = boto3.client(\'s3\', region_name={}).head_object(Bucket={}, Key={})[\'LastModified\']'.format(CONFIG_BROKER['aws_region'], PA_BUCKET, PA_SUB_KEY + PA_FILE_NAME))
         last_uploaded = boto3.client('s3', region_name=CONFIG_BROKER['aws_region']). \
             head_object(Bucket=PA_BUCKET, Key=PA_SUB_KEY + PA_FILE_NAME)['LastModified']
