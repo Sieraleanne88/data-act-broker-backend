@@ -80,8 +80,9 @@ if __name__ == '__main__':
             if len(sys.argv) <= 1:
                 # there may be more transaction data since we've last run, let's fix any links before importing new data
                 if last_updated_at:
-                    fix_broken_links(sess, PROCUREMENT, min_date=last_updated_at)
-                    fix_broken_links(sess, GRANT, min_date=last_updated_at)
+                    pass
+                    # fix_broken_links(sess, PROCUREMENT, min_date=last_updated_at)
+                    # fix_broken_links(sess, GRANT, min_date=last_updated_at)
 
                 awards = ['Starting']
                 logger.info('Loading latest FSRS reports')
