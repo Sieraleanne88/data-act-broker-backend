@@ -138,9 +138,6 @@ def run_duns_batches(file, sess, client, block_size=10000):
             client: the connection to the SAM service
             block_size: the size of the batches to read from the DUNS export file.
     """
-    logger.info(str(update_duns_props([934320916], client))
-    return
-
     logger.info("Retrieving total rows from duns file")
     start = datetime.now()
     duns_reader_obj = pd.read_csv(file, skipinitialspace=True, header=None, quotechar='"', dtype=str,
@@ -292,21 +289,25 @@ def main():
 
     if reload_file:
         client = sam_config_is_valid()
+        duns_list = ['934320916']
+        a = dataactcore.utils.parentDuns.get_duns_props_from_sam(client, duns_list)
+        logger.info(str(a))
+        return
 
-        # logger.info('Retrieving historical DUNS file')
-        # start = datetime.now()
-        # if CONFIG_BROKER["use_aws"]:
-        #     s3_client = boto3.client('s3', region_name=CONFIG_BROKER['aws_region'])
-        #     duns_file = s3_client.generate_presigned_url('get_object', {'Bucket': CONFIG_BROKER['archive_bucket'],
-        #                                                                 'Key': "DUNS_export_deduped.csv"},
-        #                                                  ExpiresIn=10000)
-        # else:
-        #     duns_file = os.path.join(CONFIG_BROKER["broker_files"], "DUNS_export_deduped.csv")
-        #
-        # if not duns_file:
-        #     raise OSError("No DUNS_export_deduped.csv found.")
-        #
-        # logger.info("Retrieved historical DUNS file in {} s".format((datetime.now() - start).total_seconds()))
+        logger.info('Retrieving historical DUNS file')
+        start = datetime.now()
+        if CONFIG_BROKER["use_aws"]:
+            s3_client = boto3.client('s3', region_name=CONFIG_BROKER['aws_region'])
+            duns_file = s3_client.generate_presigned_url('get_object', {'Bucket': CONFIG_BROKER['archive_bucket'],
+                                                                        'Key': "DUNS_export_deduped.csv"},
+                                                         ExpiresIn=10000)
+        else:
+            duns_file = os.path.join(CONFIG_BROKER["broker_files"], "DUNS_export_deduped.csv")
+
+        if not duns_file:
+            raise OSError("No DUNS_export_deduped.csv found.")
+
+        logger.info("Retrieved historical DUNS file in {} s".format((datetime.now() - start).total_seconds()))
 
         try:
             run_duns_batches(None, None, client, None)
