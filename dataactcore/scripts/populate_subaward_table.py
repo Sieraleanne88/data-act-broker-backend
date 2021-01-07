@@ -69,8 +69,11 @@ def populate_subaward_table(sess, service_type, ids=None, min_id=None):
     sql = sql.format(operator, values)
 
     # run the SQL
-    inserted = sess.execute(sql)
-    sess.commit()
+    try:
+        inserted = sess.execute(sql)
+        sess.commit()
+    except Exception as e:
+        logger.exception(e)
     inserted_count = inserted.rowcount
     award_type = service_type[:service_type.index('_')]
     logger.info('Inserted {} sub-{}s to the subaward table'.format(inserted_count, award_type))
