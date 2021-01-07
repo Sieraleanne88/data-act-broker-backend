@@ -137,10 +137,10 @@ if __name__ == '__main__':
                 if new_grants:
                     sess.query(Subaward).filter(Subaward.internal_id.in_(grant_ids)).delete(synchronize_session=False)
                     populate_subaward_table(sess, GRANT, min_id=original_min_grant_id)
-            elif args.procurement and new_procurements and args.ids:
+            elif args.procurement and args.ids:
                 sess.query(Subaward).filter(Subaward.internal_id.in_(proc_ids)).delete(synchronize_session=False)
                 populate_subaward_table(sess, PROCUREMENT, ids=args.ids)
-            elif args.grants and new_grants and args.ids:
+            elif args.grants and args.ids:
                 sess.query(Subaward).filter(Subaward.internal_id.in_(grant_ids)).delete(synchronize_session=False)
                 populate_subaward_table(sess, GRANT, ids=args.ids)
 
