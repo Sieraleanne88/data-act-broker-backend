@@ -70,6 +70,7 @@ def populate_subaward_table(sess, service_type, ids=None, min_id=None):
 
     # run the SQL
     try:
+        logger.info(sql)
         inserted = sess.execute(sql)
         sess.commit()
     except Exception as e:
