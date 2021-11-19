@@ -57,6 +57,34 @@ MIN_ROWS_LOG_BATCH = 100
 LOG_BATCH_PERCENT = 10
 
 
+class UploadProgressTracker(object):
+    """ Responsible for updating the progress for upload jobs to S3. Called by boto3's upload_fileobj during uploads
+
+        Attributes:
+            sess: the connection to the database
+            upload_file: the request FileStorage object representing the file to be uploaded
+            upload_job_id: the upload job id to update as the upload to S3 progresses
+    """
+
+    def __init__(self, sess, upload_file, upload_job_id):
+        self._sess = sess
+        self._lock = threading.Lock()
+
+        upload_file.seek(0, os.SEEK_END)
+        self.total_size = upload_file.tell()
+        self.bytes_uploaded = 0
+        self.upload_job_id = upload_job_id
+
+    def __call__(self, bytes_amount):
+        # To simplify, assume this is hooked up to a single filename
+        with self._lock:
+            self.bytes_uploaded += bytes_amount
+            upload_job = self._sess.query(Job).filter(Job.job_id == self.upload_job_id).one_or_none()
+            if upload_job:
+                upload_job.progress = (self.bytes_uploaded / self.total_size) * 100
+                self._sess.commit()
+
+
 class FileHandler:
     """ Responsible for all tasks relating to file upload
 
@@ -322,7 +350,8 @@ class FileHandler:
                 if CONFIG_BROKER['use_aws']:
                     s3 = boto3.client('s3', region_name='us-gov-west-1')
                     extra_args = {'Metadata': {'email': current_user.email}}
-                    s3.upload_fileobj(file_ref, bucket_name, filename_key, ExtraArgs=extra_args)
+                    s3.upload_fileobj(file_ref, bucket_name, filename_key, ExtraArgs=extra_args,
+                                      Callback=UploadProgressTracker(sess, file_ref, job_dict[file_type + '_id']))
                 else:
                     file_ref.save(filename_key)
                 logger.info({
@@ -580,7 +609,8 @@ class FileHandler:
             if CONFIG_BROKER['use_aws']:
                 s3 = boto3.client('s3', region_name='us-gov-west-1')
                 extra_args = {'Metadata': {'email': g.user.email}}
-                s3.upload_fileobj(fabs, bucket_name, filename_key, ExtraArgs=extra_args)
+                s3.upload_fileobj(fabs, bucket_name, filename_key, ExtraArgs=extra_args,
+                                  Callback=UploadProgressTracker(sess, fabs, job_dict['fabs_id']))
             else:
                 fabs.save(filename_key)
             logger.info({
