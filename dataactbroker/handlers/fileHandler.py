@@ -354,6 +354,9 @@ class FileHandler:
                                       Callback=UploadProgressTracker(sess, file_ref, job_dict[file_type + '_id']))
                 else:
                     file_ref.save(filename_key)
+                    upload_job = sess.query(Job).filter(Job.job_id == job_dict[file_type + '_id']).one()
+                    upload_job.progress = 100
+                    sess.commit()
                 logger.info({
                     'message': 'Uploaded {}'.format(filename_key),
                     'message_type': 'BrokerInfo',
@@ -613,6 +616,9 @@ class FileHandler:
                                   Callback=UploadProgressTracker(sess, fabs, job_dict['fabs_id']))
             else:
                 fabs.save(filename_key)
+                upload_job = sess.query(Job).filter(Job.job_id == job_dict['fabs_id']).one()
+                upload_job.progress = 100
+                sess.commit()
             logger.info({
                 'message': 'Uploaded {}'.format(filename_key),
                 'message_type': 'BrokerInfo',
