@@ -1,6 +1,7 @@
 from flask import request
 from webargs import fields as webargs_fields, validate as webargs_validate
 from webargs.flaskparser import use_kwargs
+import logging
 
 from dataactbroker.handlers.fileHandler import (
     FileHandler, get_status, list_submissions as list_submissions_handler,
@@ -22,6 +23,7 @@ from dataactcore.utils.jsonResponse import JsonResponse
 from dataactcore.utils.requestDictionary import RequestDictionary
 from dataactcore.utils.statusCode import StatusCode
 
+logger = logging.getLogger(__name__)
 
 # Add the file submission route
 def add_file_routes(app, is_local, server_path):
@@ -177,7 +179,9 @@ def add_file_routes(app, is_local, server_path):
     def upload_fabs_file():
         if "multipart/form-data" not in request.headers['Content-Type']:
             return JsonResponse.error(ValueError("Request must be a multipart/form-data type"), StatusCode.CLIENT_ERROR)
+        logger.info('HIT UPLOAD FABS ENDPOINT')
         params = RequestDictionary.derive(request)
+        logger.info('GETTING FABS OBJECT')
         fabs = params.get('_files', {}).get('fabs', None)
         file_manager = FileHandler(request, is_local=is_local, server_path=server_path)
         return file_manager.upload_fabs_file(fabs)

@@ -527,6 +527,7 @@ class FileHandler:
                 A JsonResponse containing the submission ID and a success boolean or a JsonResponse containing the
                 details of the error that occurred.
         """
+        logger.info('STARTING UPLOAD_FABS_FILE METHOD')
         sess = GlobalDB.db().session
         json_response, submission = None, None
         try:
