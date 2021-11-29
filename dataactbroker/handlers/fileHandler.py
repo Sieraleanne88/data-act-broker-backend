@@ -125,9 +125,12 @@ class FileHandler:
         self.server_path = server_path
         self.s3manager = S3Handler()
 
-    def validate_upload_dabs_files(self):
+    def validate_upload_dabs_files(self, upload=True):
         """ Validate whether the files can be created (if a new submission is being created) or not (does the
             submission exist for this date range already)
+
+            Args:
+                upload: boolean of whether to validate and upload files
 
             Returns:
                 Results of submit function or a JsonResponse object containing a failure message
@@ -166,7 +169,7 @@ class FileHandler:
                 if (formatted_start_date.month == period1 and formatted_end_date.month != period2) or \
                         (formatted_start_date.month != period1 and formatted_end_date.month == period2):
                     return JsonResponse.create(StatusCode.CLIENT_ERROR, data)
-        return self.submit(sess)
+        return self.submit(sess, upload=upload)
 
     @staticmethod
     def validate_submit_file_params(request_params):
@@ -199,13 +202,14 @@ class FileHandler:
             if not extension or extension.lower() not in ['csv', 'txt']:
                 raise ResponseException('All submitted files must be CSV or TXT format', StatusCode.CLIENT_ERROR)
 
-    def submit(self, sess):
+    def submit(self, sess, upload=True):
         """ Builds S3 URLs for a set of files and adds all related jobs to job tracker database
 
             Flask request should include keys from FILE_TYPES class variable above
 
             Args:
                 sess: current DB session
+                upload: boolean of whether to validate and upload files
 
             Returns:
                 JsonResponse object that contains the results of create_response_dict or the details of the failure
@@ -218,7 +222,8 @@ class FileHandler:
             upload_files = []
             request_params = RequestDictionary.derive(self.request)
 
-            self.validate_submit_file_params(request_params)
+            if upload:
+                self.validate_submit_file_params(request_params)
 
             # unfortunately, field names in the request don't match
             # field names in the db/response. create a mapping here.
@@ -309,72 +314,73 @@ class FileHandler:
             sess.add(submission)
             sess.commit()
 
-            # build fileNameMap to be used in creating jobs
-            file_dict = request_params['_files']
-            self.build_file_map(file_dict, FileHandler.FILE_TYPES, upload_files, submission)
+            if upload:
+                # build fileNameMap to be used in creating jobs
+                file_dict = request_params['_files']
+                self.build_file_map(file_dict, FileHandler.FILE_TYPES, upload_files, submission)
 
-            if not existing_submission:
-                # don't add external files to existing submission
-                for ext_file_type in FileHandler.EXTERNAL_FILE_TYPES:
-                    filename = GEN_FILENAMES[ext_file_type]
-                    if ext_file_type in ['D1', 'D2']:
-                        # default to using awarding agency and the start/end dates
-                        filename = filename.format(formatted_start_date.strftime('%Y%m%d'),
-                                                   formatted_end_date.strftime('%Y%m%d'), 'awarding', 'csv')
-                    if not self.is_local:
-                        upload_name = '{}/{}'.format(submission.submission_id,
-                                                     S3Handler.get_timestamped_filename(filename))
+                if not existing_submission:
+                    # don't add external files to existing submission
+                    for ext_file_type in FileHandler.EXTERNAL_FILE_TYPES:
+                        filename = GEN_FILENAMES[ext_file_type]
+                        if ext_file_type in ['D1', 'D2']:
+                            # default to using awarding agency and the start/end dates
+                            filename = filename.format(formatted_start_date.strftime('%Y%m%d'),
+                                                       formatted_end_date.strftime('%Y%m%d'), 'awarding', 'csv')
+                        if not self.is_local:
+                            upload_name = '{}/{}'.format(submission.submission_id,
+                                                         S3Handler.get_timestamped_filename(filename))
+                        else:
+                            upload_name = filename
+
+                        upload_files.append(FileHandler.UploadFile(
+                            file_type=FILE_TYPE_DICT_LETTER_NAME[ext_file_type],
+                            upload_name=upload_name,
+                            file_name=filename,
+                            file_letter=ext_file_type
+                        ))
+
+                # Add jobs or update existing ones
+                job_dict = self.create_jobs_for_submission(upload_files, submission, existing_submission)
+
+                def upload_dabs_file(file_ref, file_type, app, current_user, submission_id):
+                    filename_key = [x.upload_name for x in upload_files if x.file_type == file_type][0]
+                    bucket_name = CONFIG_BROKER['broker_files'] if self.is_local else CONFIG_BROKER['aws_bucket']
+                    logger.info({
+                        'message': 'Uploading {}'.format(filename_key),
+                        'message_type': 'BrokerInfo',
+                        'file_type': file_type,
+                        'submission_id': submission_id,
+                        'file_name': filename_key
+                    })
+                    if CONFIG_BROKER['use_aws']:
+                        s3 = boto3.client('s3', region_name='us-gov-west-1')
+                        extra_args = {'Metadata': {'email': current_user.email}}
+                        s3.upload_fileobj(file_ref, bucket_name, filename_key, ExtraArgs=extra_args,
+                                          Callback=UploadProgressTracker(sess, file_ref, job_dict[file_type + '_id']))
                     else:
-                        upload_name = filename
-
-                    upload_files.append(FileHandler.UploadFile(
-                        file_type=FILE_TYPE_DICT_LETTER_NAME[ext_file_type],
-                        upload_name=upload_name,
-                        file_name=filename,
-                        file_letter=ext_file_type
-                    ))
-
-            # Add jobs or update existing ones
-            job_dict = self.create_jobs_for_submission(upload_files, submission, existing_submission)
-
-            def upload(file_ref, file_type, app, current_user, submission_id):
-                filename_key = [x.upload_name for x in upload_files if x.file_type == file_type][0]
-                bucket_name = CONFIG_BROKER['broker_files'] if self.is_local else CONFIG_BROKER['aws_bucket']
-                logger.info({
-                    'message': 'Uploading {}'.format(filename_key),
-                    'message_type': 'BrokerInfo',
-                    'file_type': file_type,
-                    'submission_id': submission_id,
-                    'file_name': filename_key
-                })
-                if CONFIG_BROKER['use_aws']:
-                    s3 = boto3.client('s3', region_name='us-gov-west-1')
-                    extra_args = {'Metadata': {'email': current_user.email}}
-                    s3.upload_fileobj(file_ref, bucket_name, filename_key, ExtraArgs=extra_args,
-                                      Callback=UploadProgressTracker(sess, file_ref, job_dict[file_type + '_id']))
-                else:
-                    file_ref.save(filename_key)
-                    upload_job = sess.query(Job).filter(Job.job_id == job_dict[file_type + '_id']).one()
-                    upload_job.progress = 100
-                    sess.commit()
-                logger.info({
-                    'message': 'Uploaded {}'.format(filename_key),
-                    'message_type': 'BrokerInfo',
-                    'file_type': file_type,
-                    'submission_id': submission_id,
-                    'file_name': filename_key
-                })
-                with app.app_context():
-                    g.user = current_user
-                    self.finalize(job_dict[file_type + '_id'])
-            for file_type, file_ref in request_params['_files'].items():
-                t = threading.Thread(target=upload, args=(file_ref, file_type,
-                                                          current_app._get_current_object(), g.user,
-                                                          submission.submission_id))
-                t.start()
-                t.join()
-            api_response = {'success': 'true', 'submission_id': submission.submission_id}
-            json_response = JsonResponse.create(StatusCode.OK, api_response)
+                        file_ref.save(filename_key)
+                        upload_job = sess.query(Job).filter(Job.job_id == job_dict[file_type + '_id']).one()
+                        upload_job.progress = 100
+                        sess.commit()
+                    logger.info({
+                        'message': 'Uploaded {}'.format(filename_key),
+                        'message_type': 'BrokerInfo',
+                        'file_type': file_type,
+                        'submission_id': submission_id,
+                        'file_name': filename_key
+                    })
+                    with app.app_context():
+                        g.user = current_user
+                        self.finalize(job_dict[file_type + '_id'])
+                for file_type, file_ref in request_params['_files'].items():
+                    t = threading.Thread(target=upload_dabs_file, args=(file_ref, file_type,
+                                                                        current_app._get_current_object(), g.user,
+                                                                        submission.submission_id))
+                    t.start()
+                    t.join()
+                api_response = {'success': 'true', 'submission_id': submission.submission_id}
+                json_response = JsonResponse.create(StatusCode.OK, api_response)
         except (ValueError, TypeError, NotImplementedError) as e:
             json_response = JsonResponse.error(e, StatusCode.CLIENT_ERROR)
         except ResponseException as e:
@@ -388,18 +394,19 @@ class FileHandler:
             if json_response is None:
                 json_response = JsonResponse.error(Exception('Failed to catch exception'), StatusCode.INTERNAL_ERROR)
 
-            # handle errors within upload jobs
-            if json_response.status_code != StatusCode.OK and submission:
-                jobs = sess.query(Job).filter(Job.submission_id == submission.submission_id,
-                                              Job.job_type_id == JOB_TYPE_DICT['file_upload'],
-                                              Job.job_status_id == JOB_STATUS_DICT['running'],
-                                              Job.file_type_id.in_([FILE_TYPE_DICT_LETTER_ID['A'],
-                                                                    FILE_TYPE_DICT_LETTER_ID['B'],
-                                                                    FILE_TYPE_DICT_LETTER_ID['C']])).all()
-                for job in jobs:
-                    job.job_status_id = JOB_STATUS_DICT['failed']
-                    job.error_message = json_response.response[0].decode('utf-8')
-                sess.commit()
+            if upload:
+                # handle errors within upload jobs
+                if json_response.status_code != StatusCode.OK and submission:
+                    jobs = sess.query(Job).filter(Job.submission_id == submission.submission_id,
+                                                  Job.job_type_id == JOB_TYPE_DICT['file_upload'],
+                                                  Job.job_status_id == JOB_STATUS_DICT['running'],
+                                                  Job.file_type_id.in_([FILE_TYPE_DICT_LETTER_ID['A'],
+                                                                        FILE_TYPE_DICT_LETTER_ID['B'],
+                                                                        FILE_TYPE_DICT_LETTER_ID['C']])).all()
+                    for job in jobs:
+                        job.job_status_id = JOB_STATUS_DICT['failed']
+                        job.error_message = json_response.response[0].decode('utf-8')
+                    sess.commit()
 
             return json_response
 
@@ -509,28 +516,25 @@ class FileHandler:
             # Unexpected exception, this is a 500 server error
             return JsonResponse.error(e, StatusCode.INTERNAL_ERROR)
 
-    def upload_fabs_file(self, fabs):
+    def upload_fabs_file(self, fabs=None):
         """ Uploads the provided FABS file to S3 and creates a new submission if one doesn't exist or updates the
             existing submission if one does.
 
             Args:
-                fabs: the FABS file being uploaded
+                fabs: the FABS file being uploaded if provided
 
             Returns:
                 A JsonResponse containing the submission ID and a success boolean or a JsonResponse containing the
                 details of the error that occurred.
         """
-        if fabs is None:
-            return JsonResponse.error(Exception('fabs field must be present and contain a file'),
-                                      StatusCode.CLIENT_ERROR)
-
         sess = GlobalDB.db().session
         json_response, submission = None, None
         try:
-            # Make sure they only pass in csv or plain text files
-            extension = fabs.filename.split('.')[-1]
-            if not extension or extension.lower() not in ['csv', 'txt']:
-                raise ValueError('FABS files must be CSV or TXT format')
+            if fabs:
+                # Make sure they only pass in csv or plain text files
+                extension = fabs.filename.split('.')[-1]
+                if not extension or extension.lower() not in ['csv', 'txt']:
+                    raise ValueError('FABS files must be CSV or TXT format')
             upload_files = []
             request_params = RequestDictionary.derive(self.request)
             logger.info({
@@ -538,7 +542,7 @@ class FileHandler:
                 'message_type': 'BrokerInfo',
                 'agency_code': request_params.get('agency_code'),
                 'existing_submission_id': request_params.get('existing_submission_id'),
-                'file_name': fabs.filename
+                'file_name': fabs.filename if fabs else None
             })
 
             job_data = {}
@@ -594,39 +598,60 @@ class FileHandler:
                 sess.add(sub_tier_affiliation)
                 sess.commit()
 
-            # build fileNameMap to be used in creating jobs
-            self.build_file_map({'fabs': fabs}, ['fabs'], upload_files, submission)
+            if fabs:
+                logger.info('Getting FABS file size')
+                fabs.seek(0, os.SEEK_END)
+                self.total_size = fabs.tell()
+                fabs.seek(0)
+                logger.info('READABLE: {}'.format(fabs.readable()))
+                logger.info('FABS FILE SIZE: {}'.format(self.total_size))
 
-            # Add jobs or update existing one
-            job_dict = self.create_jobs_for_submission(upload_files, submission, existing_submission)
+                # build fileNameMap to be used in creating jobs
+                self.build_file_map({'fabs': fabs}, ['fabs'], upload_files, submission)
 
-            filename_key = upload_files[0].upload_name
-            bucket_name = CONFIG_BROKER['broker_files'] if self.is_local else CONFIG_BROKER['aws_bucket']
-            logger.info({
-                'message': 'Uploading {}'.format(filename_key),
-                'message_type': 'BrokerInfo',
-                'file_type': 'fabs',
-                'submission_id': submission.submission_id,
-                'file_name': filename_key
-            })
-            if CONFIG_BROKER['use_aws']:
-                s3 = boto3.client('s3', region_name='us-gov-west-1')
-                extra_args = {'Metadata': {'email': g.user.email}}
-                s3.upload_fileobj(fabs, bucket_name, filename_key, ExtraArgs=extra_args,
-                                  Callback=UploadProgressTracker(sess, fabs, job_dict['fabs_id']))
-            else:
-                fabs.save(filename_key)
+                # Add jobs or update existing one
+                job_dict = self.create_jobs_for_submission(upload_files, submission, existing_submission)
+
+                filename_key = upload_files[0].upload_name
+                bucket_name = CONFIG_BROKER['broker_files'] if self.is_local else CONFIG_BROKER['aws_bucket']
+                logger.info({
+                    'message': 'Uploading {}'.format(filename_key),
+                    'message_type': 'BrokerInfo',
+                    'file_type': 'fabs',
+                    'submission_id': submission.submission_id,
+                    'file_name': filename_key
+                })
+
+                def save_fabs_file(fabs, filename_key):
+                    fabs.save(filename_key)
+                    fabs.close()
+                logger.info('Saving FABS file'.format(self.total_size))
+                t = threading.Thread(target=save_fabs_file, args=(fabs, filename_key))
+                t.start()
+                saved = False
                 upload_job = sess.query(Job).filter(Job.job_id == job_dict['fabs_id']).one()
-                upload_job.progress = 100
-                sess.commit()
-            logger.info({
-                'message': 'Uploaded {}'.format(filename_key),
-                'message_type': 'BrokerInfo',
-                'file_type': 'fabs',
-                'submission_id': submission.submission_id,
-                'file_name': filename_key
-            })
-            json_response = self.finalize(job_dict['fabs_id'])
+                while not saved:
+                    if os.path.exists(filename_key):
+                        progress = (os.path.getsize(filename_key) / self.total_size) * 100
+                        upload_job.progress = progress
+                        sess.commit()
+                        if progress == 100:
+                            break
+                logger.info('FABS file saved'.format(self.total_size))
+
+                if CONFIG_BROKER['use_aws']:
+                    s3 = boto3.client('s3', region_name='us-gov-west-1')
+                    extra_args = {'Metadata': {'email': g.user.email}}
+                    s3.upload_file(filename_key, bucket_name, filename_key, ExtraArgs=extra_args,
+                                   Callback=UploadProgressTracker(sess, fabs, job_dict['fabs_id']))
+                logger.info({
+                    'message': 'Uploaded {}'.format(filename_key),
+                    'message_type': 'BrokerInfo',
+                    'file_type': 'fabs',
+                    'submission_id': submission.submission_id,
+                    'file_name': filename_key
+                })
+                json_response = self.finalize(job_dict['fabs_id'])
         except (ValueError, TypeError, NotImplementedError) as e:
             json_response = JsonResponse.error(e, StatusCode.CLIENT_ERROR)
         except ResponseException as e:
@@ -640,7 +665,7 @@ class FileHandler:
             if json_response is None:
                 json_response = JsonResponse.error(Exception('Failed to catch exception'), StatusCode.INTERNAL_ERROR)
 
-            if json_response.status_code != StatusCode.OK and submission:
+            if fabs and json_response.status_code != StatusCode.OK and submission:
                 fabs_job = sess.query(Job).filter(Job.submission_id == submission.submission_id,
                                                   Job.job_type_id == JOB_TYPE_DICT['file_upload'],
                                                   Job.job_status_id == JOB_STATUS_DICT['running'],

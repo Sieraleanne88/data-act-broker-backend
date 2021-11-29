@@ -27,6 +27,15 @@ from dataactcore.utils.statusCode import StatusCode
 def add_file_routes(app, is_local, server_path):
     """ Create routes related to file submission for flask app """
 
+    @app.route("/v1/create_dabs_submission/", methods=["POST"])
+    @requires_agency_perms('writer')
+    def create_dabs_submission():
+        if "multipart/form-data" in request.headers['Content-Type']:
+            return JsonResponse.error(ValueError("Request must not have a multipart/form-data type"),
+                                      StatusCode.CLIENT_ERROR)
+        file_manager = FileHandler(request, is_local=is_local, server_path=server_path)
+        return file_manager.validate_upload_dabs_files(upload=False)
+
     # Keys for the post route will correspond to the four types of files
     @app.route("/v1/upload_dabs_files/", methods=["POST"])
     @requires_agency_perms('writer')
@@ -153,6 +162,15 @@ def add_file_routes(app, is_local, server_path):
     def get_fabs_metadata(submission):
         """ Return metadata of FABS submission """
         return JsonResponse.create(StatusCode.OK, get_fabs_meta(submission.submission_id))
+
+    @app.route("/v1/create_fabs_submission/", methods=["POST"])
+    @requires_sub_agency_perms('editfabs')
+    def create_fabs_submission():
+        if "multipart/form-data" in request.headers['Content-Type']:
+            return JsonResponse.error(ValueError("Request must not have a multipart/form-data type"),
+                                      StatusCode.CLIENT_ERROR)
+        file_manager = FileHandler(request, is_local=is_local, server_path=server_path)
+        return file_manager.upload_fabs_file()
 
     @app.route("/v1/upload_fabs_file/", methods=["POST"])
     @requires_sub_agency_perms('editfabs')
