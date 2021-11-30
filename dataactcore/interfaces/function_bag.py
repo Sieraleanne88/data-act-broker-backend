@@ -437,6 +437,7 @@ def add_jobs_for_uploaded_file(upload_file, submission_id, existing_submission):
         ).one()
         # mark as running and set new file name and path
         upload_job.job_status_id = JOB_STATUS_DICT['running']
+        upload_job.progress = 0
         upload_job.original_filename = upload_file.file_name
         upload_job.filename = upload_file.upload_name
         upload_job.error_message = None
@@ -472,6 +473,7 @@ def add_jobs_for_uploaded_file(upload_file, submission_id, existing_submission):
             job_type_id=JOB_TYPE_DICT['csv_record_validation']
         ).one()
         val_job.job_status_id = JOB_STATUS_DICT['waiting']
+        val_job.progress = 0
         val_job.original_filename = upload_file.file_name
         val_job.filename = upload_file.upload_name
         # reset file size and number of rows to be set during validation of new file
