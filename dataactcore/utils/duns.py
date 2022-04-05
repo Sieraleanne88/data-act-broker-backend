@@ -688,7 +688,6 @@ def _request_sam_api(url, request_type, headers=None, params=None, body=None):
     auth = (CONFIG_BROKER['sam']['account_user_id'], CONFIG_BROKER['sam']['account_password'])
     r = requests.request(request_type.upper(), url, headers=headers, params=params, json=json.dumps(body), auth=auth,
                          timeout=60)
-    logger.info(str(r.request.url))
     # raise for server HTTP errors (requests.exceptions.HTTPError) asides from connection issues
     r.raise_for_status()
     return r.content
@@ -789,7 +788,7 @@ def update_duns_props(df, api='entity'):
     duns_props_df = pd.DataFrame(columns=request_cols)
     # SAM service only takes in batches of 100
     index = 0
-    batch_size = 100
+    batch_size = 50
     for duns_list in batch(all_duns, batch_size):
         logger.info('Gathering data for the following DUNS: {}'.format(duns_list))
         duns_props_batch = get_duns_props_from_sam(duns_list, api=api)
