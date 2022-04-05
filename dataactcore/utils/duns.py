@@ -687,7 +687,8 @@ def _request_sam_api(url, request_type, headers=None, params=None, body=None):
         return ValueError('request_type must be \'get\' or \'post\'')
     auth = (CONFIG_BROKER['sam']['account_user_id'], CONFIG_BROKER['sam']['account_password'])
     r = requests.request(request_type.upper(), url, headers=headers, params=params, json=json.dumps(body), auth=auth,
-                         timeout=5*60)
+                         timeout=60)
+    logger.info(str(r.request.url))
     # raise for server HTTP errors (requests.exceptions.HTTPError) asides from connection issues
     r.raise_for_status()
     return r.content
