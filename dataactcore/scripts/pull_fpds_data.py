@@ -169,6 +169,8 @@ def competition_values(data, obj):
                  'evaluatedPreference': 'evaluated_preference',
                  'extentCompeted': 'extent_competed',
                  'fedBizOpps': 'fed_biz_opps',
+                 'idvNumberOfOffersReceived': 'idv_number_of_offers_received',
+                 'idvTypeOfSetAside': 'idv_type_set_aside',
                  'localAreaSetAside': 'local_area_set_aside',
                  'numberOfOffersReceived': 'number_of_offers_received',
                  'priceEvaluationPercentDifference': 'price_evaluation_adjustmen',
